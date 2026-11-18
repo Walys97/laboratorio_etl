@@ -4,10 +4,12 @@ Rutas: extraccion (A), transformacion (B) y reset (C).
 """
 
 import requests
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
 
+from ..database import get_db
 from ..services import etl_service
-from ..views.schemas import ExtraerRequest, ExtraerResponse
+from ..views.schemas import ExtraerRequest, ExtraerResponse, ResetResponse
 
 router = APIRouter(prefix="/api/v1/etl", tags=["ETL"])
 
@@ -31,3 +33,13 @@ def extraer(payload: ExtraerRequest):
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"No se pudo consultar la API publica: {error}",
         )
+
+
+@router.delete("/reset", response_model=ResetResponse)
+def reset(db: Session = Depends(get_db)):
+    """
+    Endpoint C - Limpieza total.
+
+    Borra los documentos de MongoDB y vacia la tabla de MySQL con TRUNCATE.
+    """
+    return etl_service.resetear(db)
