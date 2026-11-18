@@ -6,8 +6,10 @@ y los guarda crudos en MongoDB, sin transformar.
 """
 
 import requests
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
-from ..config import API_NOMBRE, API_URL
+from ..config import API_NOMBRE, API_URL, TABLA_SQL
 from ..database import get_mongo
 
 
@@ -81,4 +83,28 @@ def extraer(cantidad: int) -> dict:
         "ya_existentes": ya_existentes,
         "fuente": API_NOMBRE,
         "status": 201,
+    }
+
+
+# ==================== Endpoint C: Reset ====================
+def resetear(db: Session) -> dict:
+    """
+    Deja el sistema como recien instalado:
+      - Borra todos los documentos de MongoDB.
+      - Vacia la tabla de MySQL con TRUNCATE (NO con DROP).
+    """
+    coleccion = get_mongo()
+    mongo_docs = coleccion.count_documents({})   # contamos antes de borrar
+    coleccion.delete_many({})                    # filtro vacio = todos
+
+    # Contamos antes, porque TRUNCATE no informa cuantas filas borro
+    mysql_rows = db.execute(text(f"SELECT COUNT(*) FROM {TABLA_SQL}")).scalar()
+    db.execute(text(f"TRUNCATE TABLE {TABLA_SQL}"))
+    db.commit()
+
+    return {
+        "mensaje": "Sistema reseteado correctamente",
+        "mongo_docs_eliminados": mongo_docs,
+        "mysql_rows_eliminadas": mysql_rows or 0,
+        "status": 200,
     }
