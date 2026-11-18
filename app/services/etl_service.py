@@ -5,13 +5,27 @@ Endpoint A (Extract): descarga personajes de la API publica
 y los guarda crudos en MongoDB, sin transformar.
 """
 
+import pandas as pd
 import requests
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ..config import API_NOMBRE, API_URL, TABLA_SQL
 from ..database import get_mongo
+from ..models.entidad_sql import Personaje
 
+# Columnas finales de la tabla en MySQL, en el mismo orden del modelo
+COLUMNAS_FINALES = [
+    "id_personaje", "nombre", "estado", "especie", "genero", "tipo",
+    "origen_nombre", "ubicacion_nombre", "total_episodios",
+    "esta_vivo", "fecha_creacion",
+]
+
+# Columnas de texto: sus nulos se rellenan con "N/A"
+COLUMNAS_TEXTO = [
+    "nombre", "estado", "especie", "genero", "tipo",
+    "origen_nombre", "ubicacion_nombre",
+]
 
 def descargar_personajes(cantidad: int) -> list[dict]:
     """
@@ -106,5 +120,83 @@ def resetear(db: Session) -> dict:
         "mensaje": "Sistema reseteado correctamente",
         "mongo_docs_eliminados": mongo_docs,
         "mysql_rows_eliminadas": mysql_rows or 0,
+        "status": 200,
+    }
+
+
+# ============ Endpoint B: Transformacion y carga ============
+def limpiar(documentos: list[dict]) -> pd.DataFrame:
+    """
+    Aplana el JSON anidado y arma el DataFrame con las 11 columnas finales.
+    """
+    df = pd.DataFrame(documentos)
+
+    # Aplanamiento: los objetos anidados se vuelven columnas
+    df["origen_nombre"] = df["origin"].apply(
+        lambda o: o.get("name") if isinstance(o, dict) else None
+    )
+    df["ubicacion_nombre"] = df["location"].apply(
+        lambda u: u.get("name") if isinstance(u, dict) else None
+    )
+
+    # Columnas derivadas
+    df["total_episodios"] = df["episode"].apply(
+        lambda e: len(e) if isinstance(e, list) else 0
+    )
+    df["esta_vivo"] = df["status"] == "Alive"
+    df["fecha_creacion"] = pd.to_datetime(df["created"], errors="coerce").dt.date
+
+    # Renombrado al espanol
+    df = df.rename(columns={
+        "_id": "id_personaje",
+        "name": "nombre",
+        "status": "estado",
+        "species": "especie",
+        "gender": "genero",
+        "type": "tipo",
+    })
+
+    # Nos quedamos solo con las columnas de la tabla
+    df = df[COLUMNAS_FINALES]
+
+    # Nulos: el texto se rellena con N/A, los numeros y fechas quedan NULL
+    for columna in COLUMNAS_TEXTO:
+        df[columna] = df[columna].replace("", None).fillna("N/A")
+
+    return df
+
+
+def transformar(db: Session) -> dict:
+    """
+    Endpoint B: lee los documentos crudos de Mongo, los limpia con Pandas
+    y los carga en MySQL sin duplicar.
+    """
+    coleccion = get_mongo()
+    documentos = list(coleccion.find({}))
+
+    if not documentos:
+        raise ValueError("No hay datos en MongoDB. Ejecute primero /extraer.")
+
+    df = limpiar(documentos)
+
+    procesados = 0
+    for fila in df.to_dict(orient="records"):
+        # Pandas usa sus propios tipos; MySQL necesita tipos de Python
+        fila["id_personaje"] = int(fila["id_personaje"])
+        fila["total_episodios"] = int(fila["total_episodios"])
+        fila["esta_vivo"] = bool(fila["esta_vivo"])
+        if pd.isna(fila["fecha_creacion"]):
+            fila["fecha_creacion"] = None
+
+        # merge hace UPDATE si la PK ya existe e INSERT si no: eso da idempotencia
+        db.merge(Personaje(**fila))
+        procesados += 1
+
+    db.commit()
+
+    return {
+        "mensaje": "Pipeline finalizado",
+        "registros_procesados": procesados,
+        "tabla_destino": TABLA_SQL,
         "status": 200,
     }
