@@ -9,8 +9,12 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..services import etl_service
-from ..views.schemas import ExtraerRequest, ExtraerResponse, ResetResponse
-
+from ..views.schemas import (
+    ExtraerRequest,
+    ExtraerResponse,
+    ResetResponse,
+    TransformarResponse,
+)
 router = APIRouter(prefix="/api/v1/etl", tags=["ETL"])
 
 
@@ -43,3 +47,20 @@ def reset(db: Session = Depends(get_db)):
     Borra los documentos de MongoDB y vacia la tabla de MySQL con TRUNCATE.
     """
     return etl_service.resetear(db)
+
+
+@router.post("/transformar", response_model=TransformarResponse)
+def transformar(db: Session = Depends(get_db)):
+    """
+    Endpoint B - Transformacion y carga (ETL).
+
+    Lee los documentos crudos de MongoDB, los aplana y limpia con Pandas
+    y los inserta en MySQL. Es idempotente: no duplica filas al reejecutar.
+    """
+    try:
+        return etl_service.transformar(db)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        )
