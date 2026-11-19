@@ -36,3 +36,23 @@ def analizar_columna(
         )
 
     return resultado
+
+
+@router.get("/perfil/{id}")
+def obtener_perfil(
+    id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Consulta el perfil de un personaje en MongoDB y MySQL.
+    """
+
+    resultado = analitica_service.obtener_perfil_dual(db, id)
+
+    if resultado is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No se encontro el personaje con ID {id} en ninguna de las dos bases de datos."
+        )
+
+    return resultado
