@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import date, datetime
 from numbers import Number
 from sqlalchemy.orm import Session
-
+from ..database import get_mongo
 from ..models.entidad_sql import Personaje
 
 
@@ -126,4 +126,54 @@ def analizar_columna(db: Session, nombre_columna: str):
         "distribucion": distribucion,
         "valor_mas_comun": valor_mas_comun,
         "nulos": nulos
+    }
+
+
+
+def obtener_perfil_dual(db: Session, personaje_id: int):
+    """
+    Busca un personaje simultaneamente en MongoDB y MySQL.
+    """
+
+    # 1. Obtener la coleccion de MongoDB.
+    coleccion = get_mongo()
+
+    # 2. Buscar el personaje en MongoDB usando su _id.
+    vista_mongo = coleccion.find_one({"_id": personaje_id})
+
+    # 3. Buscar el mismo personaje en MySQL.
+    vista_sql = db.query(Personaje).filter(
+        Personaje.id_personaje == personaje_id
+    ).first()
+
+    # 4. Si no existe en ninguna de las dos bases.
+    if vista_mongo is None and vista_sql is None:
+        return None
+
+    # 5. Preparar la vista de MongoDB.
+    if vista_mongo is not None:
+        vista_mongo["_id"] = str(vista_mongo["_id"])
+
+    # 6. Preparar la vista de MySQL.
+    if vista_sql is not None:
+        vista_sql = {
+            columna.name: getattr(vista_sql, columna.name)
+            for columna in Personaje.__table__.columns
+        }
+
+    # 7. Identificar posibles inconsistencias.
+    warning = None
+
+    if vista_mongo is None:
+        warning = "El personaje existe en MySQL, pero no en MongoDB."
+
+    elif vista_sql is None:
+        warning = "El personaje existe en MongoDB, pero no en MySQL."
+
+    # 8. Construir la respuesta.
+    return {
+        "id": personaje_id,
+        "vista_mongo": vista_mongo,
+        "vista_sql": vista_sql,
+        "warning": warning
     }
