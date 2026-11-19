@@ -135,6 +135,7 @@ def limpiar(documentos: list[dict]) -> pd.DataFrame:
     """
     Aplana el JSON anidado y arma el DataFrame con las 11 columnas finales.
     """
+    # Cada documento de Mongo es un dict; DataFrame lo vuelve una fila por personaje
     df = pd.DataFrame(documentos)
 
     # Si la API omite algun campo, la columna queda vacia en vez de romper
@@ -167,8 +168,9 @@ def limpiar(documentos: list[dict]) -> pd.DataFrame:
 
     # Nos quedamos solo con las columnas de la tabla
     df = df[COLUMNAS_FINALES]
-
-    # Nulos: el texto se rellena con N/A, los numeros y fechas quedan NULL
+    # Quita espacios; replace("", pd.NA) trata los vacios
+    # como nulos; fillna("N/A") los rellena. Los numericos NO se rellenan: quedan NULL
+    # y para no distorsionar el promedio y la mediana del endpoint de analitica.
     for columna in COLUMNAS_TEXTO:
         df[columna] = (
             df[columna].astype("string").str.strip()
