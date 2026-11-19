@@ -7,9 +7,10 @@ y los guarda crudos en MongoDB, sin transformar.
 
 import pandas as pd
 import requests
+from ..database import Base, get_mongo
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-
+from sqlalchemy.dialects.mysql import insert as mysql_insert
 from ..config import API_NOMBRE, API_URL, TABLA_SQL
 from ..database import get_mongo
 from ..models.entidad_sql import Personaje
@@ -204,22 +205,34 @@ def preparar_registros(df: pd.DataFrame) -> list[dict]:
         registros.append(fila)
     return registros
 
+def cargar_en_mysql(db: Session, registros: list[dict], tamano_lote: int = 500) -> int:
+    """
+    L del ETL: inserta en lotes con INSERT ... ON DUPLICATE KEY UPDATE.
+    Si la PK ya existe actualiza la fila; si no, la inserta. Asi no hay duplicados.
+    """
+    tabla = Personaje.__table__
+    for i in range(0, len(registros), tamano_lote):
+        lote = registros[i:i + tamano_lote]
+        stmt = mysql_insert(tabla).values(lote)
+        stmt = stmt.on_duplicate_key_update(
+            {c.name: stmt.inserted[c.name] for c in tabla.columns if not c.primary_key}
+        )
+        db.execute(stmt)
+    db.commit()
+    return len(registros)
+
 def transformar(db: Session) -> dict:
     """
     Endpoint B: lee los documentos crudos de Mongo, los limpia con Pandas
     y los carga en MySQL sin duplicar.
     """
+    # Resiliencia: si la tabla no existe, se crea con su PK (nunca to_sql replace)
+    Base.metadata.create_all(bind=db.get_bind())
+
     documentos = leer_documentos_mongo()
-
     df = limpiar(documentos)
-
-    procesados += 1
     registros = preparar_registros(df)
-    for fila in registros:
-        db.merge(Personaje(**fila))
-    procesados = len(registros)
-
-    db.commit()
+    procesados = cargar_en_mysql(db, registros)
 
     return {
         "mensaje": "Pipeline finalizado",
