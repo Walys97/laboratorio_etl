@@ -26,6 +26,11 @@ COLUMNAS_TEXTO = [
     "nombre", "estado", "especie", "genero", "tipo",
     "origen_nombre", "ubicacion_nombre",
 ]
+# Campos que esperamos en cada documento crudo de Mongo
+COLUMNAS_ESPERADAS = [
+    "_id", "name", "status", "species", "gender", "type",
+    "origin", "location", "episode", "created",
+]
 
 def descargar_personajes(cantidad: int) -> list[dict]:
     """
@@ -131,6 +136,9 @@ def limpiar(documentos: list[dict]) -> pd.DataFrame:
     """
     df = pd.DataFrame(documentos)
 
+    # Si la API omite algun campo, la columna queda vacia en vez de romper
+    df = df.reindex(columns=COLUMNAS_ESPERADAS)
+
     # Aplanamiento: los objetos anidados se vuelven columnas
     df["origen_nombre"] = df["origin"].apply(
         lambda o: o.get("name") if isinstance(o, dict) else None
@@ -141,12 +149,12 @@ def limpiar(documentos: list[dict]) -> pd.DataFrame:
 
     # Columnas derivadas
     df["total_episodios"] = df["episode"].apply(
-        lambda e: len(e) if isinstance(e, list) else 0
+        lambda e: len(e) if isinstance(e, list) else None
     )
     df["esta_vivo"] = df["status"] == "Alive"
     df["fecha_creacion"] = pd.to_datetime(df["created"], errors="coerce").dt.date
 
-    # Renombrado al espanol
+    # Renombrado
     df = df.rename(columns={
         "_id": "id_personaje",
         "name": "nombre",
@@ -155,6 +163,18 @@ def limpiar(documentos: list[dict]) -> pd.DataFrame:
         "gender": "genero",
         "type": "tipo",
     })
+
+    # Nos quedamos solo con las columnas de la tabla
+    df = df[COLUMNAS_FINALES]
+
+    # Nulos: el texto se rellena con N/A, los numeros y fechas quedan NULL
+    for columna in COLUMNAS_TEXTO:
+        df[columna] = (
+            df[columna].astype("string").str.strip()
+            .replace("", pd.NA).fillna("N/A")
+        )
+
+    return df
 
     # Nos quedamos solo con las columnas de la tabla
     df = df[COLUMNAS_FINALES]
@@ -183,7 +203,8 @@ def transformar(db: Session) -> dict:
     for fila in df.to_dict(orient="records"):
         # Pandas usa sus propios tipos; MySQL necesita tipos de Python
         fila["id_personaje"] = int(fila["id_personaje"])
-        fila["total_episodios"] = int(fila["total_episodios"])
+        total = fila["total_episodios"]
+        fila["total_episodios"] = None if pd.isna(total) else int(total)
         fila["esta_vivo"] = bool(fila["esta_vivo"])
         if pd.isna(fila["fecha_creacion"]):
             fila["fecha_creacion"] = None
