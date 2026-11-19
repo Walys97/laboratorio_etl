@@ -1,8 +1,9 @@
 """
 Logica del pipeline ETL.
 
-Endpoint A (Extract): descarga personajes de la API publica
-y los guarda crudos en MongoDB, sin transformar.
+- Endpoint A (Extract): descarga personajes de la API publica y los guarda crudos en MongoDB.
+- Endpoint B (Transform + Load): lee de Mongo, limpia con Pandas y carga en MySQL con upsert.
+- Endpoint C (Reset): borra Mongo y hace TRUNCATE de la tabla en MySQL.
 """
 import pandas as pd
 import requests
