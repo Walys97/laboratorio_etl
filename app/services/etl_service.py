@@ -184,18 +184,19 @@ def limpiar(documentos: list[dict]) -> pd.DataFrame:
         df[columna] = df[columna].replace("", None).fillna("N/A")
 
     return df
-
+def leer_documentos_mongo() -> list[dict]:
+    """E del ETL: lee todos los documentos crudos de la coleccion raw."""
+    documentos = list(get_mongo().find({}))
+    if not documentos:
+        raise ValueError("No hay datos en MongoDB. Ejecute primero /extraer.")
+    return documentos
 
 def transformar(db: Session) -> dict:
     """
     Endpoint B: lee los documentos crudos de Mongo, los limpia con Pandas
     y los carga en MySQL sin duplicar.
     """
-    coleccion = get_mongo()
-    documentos = list(coleccion.find({}))
-
-    if not documentos:
-        raise ValueError("No hay datos en MongoDB. Ejecute primero /extraer.")
+    documentos = leer_documentos_mongo()
 
     df = limpiar(documentos)
 
