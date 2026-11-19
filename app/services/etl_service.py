@@ -4,15 +4,14 @@ Logica del pipeline ETL.
 Endpoint A (Extract): descarga personajes de la API publica
 y los guarda crudos en MongoDB, sin transformar.
 """
-
 import pandas as pd
 import requests
-from ..database import Base, get_mongo
 from sqlalchemy import text
-from sqlalchemy.orm import Session
 from sqlalchemy.dialects.mysql import insert as mysql_insert
+from sqlalchemy.orm import Session
+
 from ..config import API_NOMBRE, API_URL, TABLA_SQL
-from ..database import get_mongo
+from ..database import Base, get_mongo
 from ..models.entidad_sql import Personaje
 
 # Columnas finales de la tabla en MySQL, en el mismo orden del modelo
@@ -177,20 +176,14 @@ def limpiar(documentos: list[dict]) -> pd.DataFrame:
 
     return df
 
-    # Nos quedamos solo con las columnas de la tabla
-    df = df[COLUMNAS_FINALES]
 
-    # Nulos: el texto se rellena con N/A, los numeros y fechas quedan NULL
-    for columna in COLUMNAS_TEXTO:
-        df[columna] = df[columna].replace("", None).fillna("N/A")
-
-    return df
 def leer_documentos_mongo() -> list[dict]:
     """E del ETL: lee todos los documentos crudos de la coleccion raw."""
     documentos = list(get_mongo().find({}))
     if not documentos:
         raise ValueError("No hay datos en MongoDB. Ejecute primero /extraer.")
     return documentos
+
 
 def preparar_registros(df: pd.DataFrame) -> list[dict]:
     """Convierte el DataFrame a registros con tipos nativos de Python (NaN/NaT -> None)."""
@@ -204,6 +197,7 @@ def preparar_registros(df: pd.DataFrame) -> list[dict]:
             fila["fecha_creacion"] = None
         registros.append(fila)
     return registros
+
 
 def cargar_en_mysql(db: Session, registros: list[dict], tamano_lote: int = 500) -> int:
     """
@@ -220,6 +214,7 @@ def cargar_en_mysql(db: Session, registros: list[dict], tamano_lote: int = 500) 
         db.execute(stmt)
     db.commit()
     return len(registros)
+
 
 def transformar(db: Session) -> dict:
     """
