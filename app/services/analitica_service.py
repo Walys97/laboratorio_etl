@@ -3,6 +3,7 @@ import pandas as pd
 
 from datetime import date, datetime
 from numbers import Number
+from sqlalchemy import Boolean, Date, Integer, String
 from sqlalchemy.orm import Session
 from ..database import get_mongo
 from ..models.entidad_sql import Personaje
@@ -46,6 +47,54 @@ def analizar_columna(db: Session, nombre_columna: str):
     # 3. Separar los valores nulos de los valores válidos.
     datos = [valor for valor in valores if valor is not None]
     nulos = len(valores) - len(datos)
+
+    #  Si todos los valores son nulos, identificar el tipo
+    # usando la estructura definida en el modelo de SQLAlchemy.
+    if not datos:
+        columna_sql = Personaje.__table__.columns[nombre_columna]
+        tipo_sql = columna_sql.type
+
+        # Las columnas booleanas se revisan antes que las numéricas.
+        if isinstance(tipo_sql, Boolean):
+            return {
+                "columna": nombre_columna,
+                "tipo": "booleana",
+                "true": 0,
+                "false": 0,
+                "nulos": nulos
+            }
+
+        elif isinstance(tipo_sql, Date):
+            return {
+                "columna": nombre_columna,
+                "tipo": "fecha",
+                "min": None,
+                "max": None,
+                "rango_dias": None,
+                "nulos": nulos
+            }
+
+        elif isinstance(tipo_sql, Integer):
+            return {
+                "columna": nombre_columna,
+                "tipo": "numerica",
+                "min": None,
+                "max": None,
+                "promedio": None,
+                "mediana": None,
+                "desviacion_std": None,
+                "nulos": nulos
+            }
+
+        elif isinstance(tipo_sql, String):
+            return {
+                "columna": nombre_columna,
+                "tipo": "texto",
+                "valores_unicos": 0,
+                "nulos": nulos
+            }
+
+
 
     # 4. Identificar si los datos son fechas.
     if datos and all(isinstance(valor, (date, datetime)) for valor in datos):
