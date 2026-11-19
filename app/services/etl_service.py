@@ -191,6 +191,19 @@ def leer_documentos_mongo() -> list[dict]:
         raise ValueError("No hay datos en MongoDB. Ejecute primero /extraer.")
     return documentos
 
+def preparar_registros(df: pd.DataFrame) -> list[dict]:
+    """Convierte el DataFrame a registros con tipos nativos de Python (NaN/NaT -> None)."""
+    registros = []
+    for fila in df.to_dict(orient="records"):
+        fila["id_personaje"] = int(fila["id_personaje"])
+        total = fila["total_episodios"]
+        fila["total_episodios"] = None if pd.isna(total) else int(total)
+        fila["esta_vivo"] = bool(fila["esta_vivo"])
+        if pd.isna(fila["fecha_creacion"]):
+            fila["fecha_creacion"] = None
+        registros.append(fila)
+    return registros
+
 def transformar(db: Session) -> dict:
     """
     Endpoint B: lee los documentos crudos de Mongo, los limpia con Pandas
@@ -200,19 +213,11 @@ def transformar(db: Session) -> dict:
 
     df = limpiar(documentos)
 
-    procesados = 0
-    for fila in df.to_dict(orient="records"):
-        # Pandas usa sus propios tipos; MySQL necesita tipos de Python
-        fila["id_personaje"] = int(fila["id_personaje"])
-        total = fila["total_episodios"]
-        fila["total_episodios"] = None if pd.isna(total) else int(total)
-        fila["esta_vivo"] = bool(fila["esta_vivo"])
-        if pd.isna(fila["fecha_creacion"]):
-            fila["fecha_creacion"] = None
-
-        # merge hace UPDATE si la PK ya existe e INSERT si no: eso da idempotencia
+    procesados += 1
+    registros = preparar_registros(df)
+    for fila in registros:
         db.merge(Personaje(**fila))
-        procesados += 1
+    procesados = len(registros)
 
     db.commit()
 
