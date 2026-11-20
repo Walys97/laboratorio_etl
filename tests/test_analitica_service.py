@@ -59,3 +59,99 @@ def test_analizar_columna_categorica_con_nulos(monkeypatch):
     }
     assert resultado["valor_mas_comun"] == "humano"
     assert resultado["nulos"] == 1
+
+
+
+def test_columna_booleana_todos_nulos(monkeypatch):
+    """Comprueba una columna booleana cuyos valores son todos nulos."""
+
+    monkeypatch.setattr(
+        analitica_service,
+        "obtener_columnas",
+        lambda: ["esta_vivo"]
+    )
+
+    monkeypatch.setattr(
+        analitica_service,
+        "obtener_datos_columna",
+        lambda db, nombre: [None, None, None]
+    )
+
+    resultado = analitica_service.analizar_columna(None, "esta_vivo")
+
+    assert resultado["tipo"] == "booleana"
+    assert resultado["true"] == 0
+    assert resultado["false"] == 0
+    assert resultado["nulos"] == 3
+
+
+def test_columna_fecha_todos_nulos(monkeypatch):
+    """Comprueba una columna de fecha cuyos valores son todos nulos."""
+
+    monkeypatch.setattr(
+        analitica_service,
+        "obtener_columnas",
+        lambda: ["fecha_creacion"]
+    )
+
+    monkeypatch.setattr(
+        analitica_service,
+        "obtener_datos_columna",
+        lambda db, nombre: [None, None]
+    )
+
+    resultado = analitica_service.analizar_columna(None, "fecha_creacion")
+
+    assert resultado["tipo"] == "fecha"
+    assert resultado["min"] is None
+    assert resultado["max"] is None
+    assert resultado["rango_dias"] is None
+    assert resultado["nulos"] == 2
+
+
+def test_columna_numerica_todos_nulos(monkeypatch):
+    """Comprueba una columna numérica cuyos valores son todos nulos."""
+
+    monkeypatch.setattr(
+        analitica_service,
+        "obtener_columnas",
+        lambda: ["total_episodios"]
+    )
+
+    monkeypatch.setattr(
+        analitica_service,
+        "obtener_datos_columna",
+        lambda db, nombre: [None, None, None]
+    )
+
+    resultado = analitica_service.analizar_columna(None, "total_episodios")
+
+    assert resultado["tipo"] == "numerica"
+    assert resultado["min"] is None
+    assert resultado["max"] is None
+    assert resultado["promedio"] is None
+    assert resultado["mediana"] is None
+    assert resultado["desviacion_std"] is None
+    assert resultado["nulos"] == 3
+
+
+def test_columna_texto_todos_nulos(monkeypatch):
+    """Comprueba una columna de texto cuyos valores son todos nulos."""
+
+    monkeypatch.setattr(
+        analitica_service,
+        "obtener_columnas",
+        lambda: ["estado"]
+    )
+
+    monkeypatch.setattr(
+        analitica_service,
+        "obtener_datos_columna",
+        lambda db, nombre: [None, None]
+    )
+
+    resultado = analitica_service.analizar_columna(None, "estado")
+
+    assert resultado["tipo"] == "texto"
+    assert resultado["valores_unicos"] == 0
+    assert resultado["nulos"] == 2
