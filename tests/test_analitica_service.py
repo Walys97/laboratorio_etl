@@ -155,3 +155,18 @@ def test_columna_texto_todos_nulos(monkeypatch):
     assert resultado["tipo"] == "texto"
     assert resultado["valores_unicos"] == 0
     assert resultado["nulos"] == 2
+def test_analizar_columna_inexistente(monkeypatch):
+    """Comprueba que el servicio rechace una columna inexistente."""
+
+    monkeypatch.setattr(
+        analitica_service,
+        "obtener_columnas",
+        lambda: ["nombre", "estado", "especie"]
+    )
+
+    resultado = analitica_service.analizar_columna(
+        db=None,
+        nombre_columna="columna_falsa"
+    )
+
+    assert resultado is None
