@@ -184,6 +184,39 @@ La documentación interactiva queda en **http://localhost:8000/docs**
 6. `GET /api/v1/analitica/columna/especie` — análisis de una columna categórica
 7. `GET /api/v1/analitica/perfil/1` — el mismo registro en las dos bases
 
+
+## Pruebas automatizadas
+
+El proyecto incluye pruebas automatizadas para verificar el funcionamiento
+de los endpoints de analítica, sin necesidad de modificar los datos reales
+de MongoDB o MySQL.
+
+**Dependencias para ejecutar las pruebas:**
+
+```bash
+pip install pytest httpx
+```
+
+**Ejecutar todas las pruebas:**
+
+```bash
+python -m pytest tests/ -v
+```
+
+**Cobertura de las pruebas:**
+
+| Endpoint | Escenarios verificados |
+|---|---|
+| Análisis por columna | Consulta válida, normalización del nombre y columna inexistente |
+| Perfil dual | Registro en ambas bases, registro inexistente, registro solo en MongoDB y registro solo en MySQL |
+
+Las pruebas utilizan simulaciones (*mocks*) del servicio de analítica
+para comprobar las respuestas HTTP del controlador sin depender de
+conexiones activas a las bases de datos.
+
+
+
+
 ## Decisiones técnicas
 
 - **MongoDB para el staging** porque el JSON de la API trae objetos anidados

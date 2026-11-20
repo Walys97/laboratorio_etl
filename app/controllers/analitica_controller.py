@@ -22,7 +22,10 @@ def analizar_columna(
     Analiza una columna de la tabla Personaje.
     """
 
+    nombre = nombre.strip().lower()
+
     resultado = analitica_service.analizar_columna(db, nombre)
+    
 
     if resultado is None:
         columnas = analitica_service.obtener_columnas()
