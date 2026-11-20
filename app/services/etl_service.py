@@ -1,17 +1,18 @@
 """
 Logica del pipeline ETL.
 
-Endpoint A (Extract): descarga personajes de la API publica
-y los guarda crudos en MongoDB, sin transformar.
+- Endpoint A (Extract): descarga personajes de la API publica y los guarda crudos en MongoDB.
+- Endpoint B (Transform + Load): lee de Mongo, limpia con Pandas y carga en MySQL con upsert.
+- Endpoint C (Reset): borra Mongo y hace TRUNCATE de la tabla en MySQL.
 """
-
 import pandas as pd
 import requests
 from sqlalchemy import text
+from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.orm import Session
 
 from ..config import API_NOMBRE, API_URL, TABLA_SQL
-from ..database import get_mongo
+from ..database import Base, get_mongo
 from ..models.entidad_sql import Personaje
 
 # Columnas finales de la tabla en MySQL, en el mismo orden del modelo
@@ -25,6 +26,11 @@ COLUMNAS_FINALES = [
 COLUMNAS_TEXTO = [
     "nombre", "estado", "especie", "genero", "tipo",
     "origen_nombre", "ubicacion_nombre",
+]
+# Campos que esperamos en cada documento crudo de Mongo
+COLUMNAS_ESPERADAS = [
+    "_id", "name", "status", "species", "gender", "type",
+    "origin", "location", "episode", "created",
 ]
 
 def descargar_personajes(cantidad: int) -> list[dict]:
@@ -129,7 +135,11 @@ def limpiar(documentos: list[dict]) -> pd.DataFrame:
     """
     Aplana el JSON anidado y arma el DataFrame con las 11 columnas finales.
     """
+    # Cada documento de Mongo es un dict; DataFrame lo vuelve una fila por personaje
     df = pd.DataFrame(documentos)
+
+    # Si la API omite algun campo, la columna queda vacia en vez de romper
+    df = df.reindex(columns=COLUMNAS_ESPERADAS)
 
     # Aplanamiento: los objetos anidados se vuelven columnas
     df["origen_nombre"] = df["origin"].apply(
@@ -141,12 +151,12 @@ def limpiar(documentos: list[dict]) -> pd.DataFrame:
 
     # Columnas derivadas
     df["total_episodios"] = df["episode"].apply(
-        lambda e: len(e) if isinstance(e, list) else 0
+        lambda e: len(e) if isinstance(e, list) else None
     )
     df["esta_vivo"] = df["status"] == "Alive"
     df["fecha_creacion"] = pd.to_datetime(df["created"], errors="coerce").dt.date
 
-    # Renombrado al espanol
+    # Renombrado
     df = df.rename(columns={
         "_id": "id_personaje",
         "name": "nombre",
@@ -158,12 +168,55 @@ def limpiar(documentos: list[dict]) -> pd.DataFrame:
 
     # Nos quedamos solo con las columnas de la tabla
     df = df[COLUMNAS_FINALES]
-
-    # Nulos: el texto se rellena con N/A, los numeros y fechas quedan NULL
+    # Quita espacios; replace("", pd.NA) trata los vacios
+    # como nulos; fillna("N/A") los rellena. Los numericos NO se rellenan: quedan NULL
+    # y para no distorsionar el promedio y la mediana del endpoint de analitica.
     for columna in COLUMNAS_TEXTO:
-        df[columna] = df[columna].replace("", None).fillna("N/A")
+        df[columna] = (
+            df[columna].astype("string").str.strip()
+            .replace("", pd.NA).fillna("N/A")
+        )
 
     return df
+
+
+def leer_documentos_mongo() -> list[dict]:
+    """E del ETL: lee todos los documentos crudos de la coleccion raw."""
+    documentos = list(get_mongo().find({}))
+    if not documentos:
+        raise ValueError("No hay datos en MongoDB. Ejecute primero /extraer.")
+    return documentos
+
+
+def preparar_registros(df: pd.DataFrame) -> list[dict]:
+    """Convierte el DataFrame a registros con tipos nativos de Python (NaN/NaT -> None)."""
+    registros = []
+    for fila in df.to_dict(orient="records"):
+        fila["id_personaje"] = int(fila["id_personaje"])
+        total = fila["total_episodios"]
+        fila["total_episodios"] = None if pd.isna(total) else int(total)
+        fila["esta_vivo"] = bool(fila["esta_vivo"])
+        if pd.isna(fila["fecha_creacion"]):
+            fila["fecha_creacion"] = None
+        registros.append(fila)
+    return registros
+
+
+def cargar_en_mysql(db: Session, registros: list[dict], tamano_lote: int = 500) -> int:
+    """
+    L del ETL: inserta en lotes con INSERT ... ON DUPLICATE KEY UPDATE.
+    Si la PK ya existe actualiza la fila; si no, la inserta. Asi no hay duplicados.
+    """
+    tabla = Personaje.__table__
+    for i in range(0, len(registros), tamano_lote):
+        lote = registros[i:i + tamano_lote]
+        stmt = mysql_insert(tabla).values(lote)
+        stmt = stmt.on_duplicate_key_update(
+            {c.name: stmt.inserted[c.name] for c in tabla.columns if not c.primary_key}
+        )
+        db.execute(stmt)
+    db.commit()
+    return len(registros)
 
 
 def transformar(db: Session) -> dict:
@@ -171,28 +224,13 @@ def transformar(db: Session) -> dict:
     Endpoint B: lee los documentos crudos de Mongo, los limpia con Pandas
     y los carga en MySQL sin duplicar.
     """
-    coleccion = get_mongo()
-    documentos = list(coleccion.find({}))
+    # Resiliencia: si la tabla no existe, se crea con su PK (nunca to_sql replace)
+    Base.metadata.create_all(bind=db.get_bind())
 
-    if not documentos:
-        raise ValueError("No hay datos en MongoDB. Ejecute primero /extraer.")
-
+    documentos = leer_documentos_mongo()
     df = limpiar(documentos)
-
-    procesados = 0
-    for fila in df.to_dict(orient="records"):
-        # Pandas usa sus propios tipos; MySQL necesita tipos de Python
-        fila["id_personaje"] = int(fila["id_personaje"])
-        fila["total_episodios"] = int(fila["total_episodios"])
-        fila["esta_vivo"] = bool(fila["esta_vivo"])
-        if pd.isna(fila["fecha_creacion"]):
-            fila["fecha_creacion"] = None
-
-        # merge hace UPDATE si la PK ya existe e INSERT si no: eso da idempotencia
-        db.merge(Personaje(**fila))
-        procesados += 1
-
-    db.commit()
+    registros = preparar_registros(df)
+    procesados = cargar_en_mysql(db, registros)
 
     return {
         "mensaje": "Pipeline finalizado",

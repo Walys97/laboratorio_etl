@@ -197,3 +197,12 @@ La documentación interactiva queda en **http://localhost:8000/docs**
 - **`autoincrement=False`** en la Primary Key: el identificador lo define la API,
   no MySQL, para que las dos bases usen la misma llave.
 - **Credenciales en `.env`**, excluido del repositorio por `.gitignore`.
+- **Nulos distintos según el tipo de columna**: el texto categórico se rellena con
+  `"N/A"`; los numéricos y las fechas quedan en `NULL`. Rellenar con 0 distorsionaría
+  el promedio y la mediana del análisis por columna, y `"N/A"` no es una fecha válida.
+- **`INSERT ... ON DUPLICATE KEY UPDATE` en lotes** para cargar en MySQL, en vez de
+  `df.to_sql(if_exists="replace")`: el upsert evita duplicados al reejecutar
+  `/transformar` y conserva la tabla y su Primary Key, que `replace` destruiría.
+- **`Base.metadata.create_all` al inicio de `/transformar`**: si la tabla no existe se
+  crea con el modelo de SQLAlchemy (con su PK), así el pipeline no depende de que
+  alguien la haya creado a mano.
